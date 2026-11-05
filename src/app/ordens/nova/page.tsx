@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Client, Product } from '@/lib/supabase'
+import { PAYMENT_LABELS } from '@/lib/format'
 import { Plus, Trash2, ArrowLeft, UserPlus, UserCheck } from 'lucide-react'
 import Link from 'next/link'
 
@@ -14,13 +15,22 @@ interface ItemForm {
   product_id?: string
 }
 
+function formatBRL(value: string): string {
+  const num = value.replace(/\D/g, '')
+  const cents = Number(num) / 100
+  return cents.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function parseBRL(formatted: string): number {
+  return Number(formatted.replace(/\./g, '').replace(',', '.')) || 0
+}
+
 function NovaOrdemContent() {
   const router = useRouter()
   const [clients, setClients] = useState<Client[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [saving, setSaving] = useState(false)
 
-  // Cliente: modo "novo" ou "existente"
   const [clientMode, setClientMode] = useState<'novo' | 'existente'>('novo')
   const [selectedClientId, setSelectedClientId] = useState('')
   const [newClient, setNewClient] = useState({
@@ -48,6 +58,13 @@ function NovaOrdemContent() {
     { description: '', quantity: 1, unit_price: 0, item_type: 'servico' },
   ])
 
+  // Pagamento
+  const [registerPayment, setRegisterPayment] = useState(true)
+  const [paymentMethod, setPaymentMethod] = useState('pix')
+
+  // Price display values (formatted strings)
+  const [priceDisplays, setPriceDisplays] = useState<string[]>(['0,00'])
+
   useEffect(() => {
     supabase.from('clients').select('*').order('name').then(({ data }) => setClients((data || []) as Client[]))
     supabase.from('products').select('*').eq('active', true).order('name').then(({ data }) => setProducts((data || []) as Product[]))
@@ -55,10 +72,12 @@ function NovaOrdemContent() {
 
   function addItem() {
     setItems([...items, { description: '', quantity: 1, unit_price: 0, item_type: 'servico' }])
+    setPriceDisplays([...priceDisplays, '0,00'])
   }
 
   function removeItem(i: number) {
     setItems(items.filter((_, idx) => idx !== i))
+    setPriceDisplays(priceDisplays.filter((_, idx) => idx !== i))
   }
 
   function updateItem(i: number, field: string, value: string | number) {
@@ -67,6 +86,9 @@ function NovaOrdemContent() {
       const product = products.find(p => p.id === value)
       if (product) {
         updated[i] = { ...updated[i], product_id: product.id, description: product.name, unit_price: product.sell_price, item_type: 'peca' }
+        const newDisplays = [...priceDisplays]
+        newDisplays[i] = product.sell_price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+        setPriceDisplays(newDisplays)
       }
     } else {
       ;(updated[i] as unknown as Record<string, unknown>)[field] = value
@@ -74,25 +96,30 @@ function NovaOrdemContent() {
     setItems(updated)
   }
 
+  function handlePriceChange(i: number, rawValue: string) {
+    const formatted = formatBRL(rawValue)
+    const newDisplays = [...priceDisplays]
+    newDisplays[i] = formatted
+    setPriceDisplays(newDisplays)
+
+    const updated = [...items]
+    updated[i] = { ...updated[i], unit_price: parseBRL(formatted) }
+    setItems(updated)
+  }
+
   const total = items.reduce((sum, it) => sum + it.quantity * it.unit_price, 0)
 
   async function save() {
     if (!form.equipment.trim()) return alert('Equipamento é obrigatório')
-
-    // Validar cliente
-    if (clientMode === 'novo' && !newClient.name.trim()) {
-      return alert('Nome do cliente é obrigatório')
-    }
+    if (clientMode === 'novo' && !newClient.name.trim()) return alert('Nome do cliente é obrigatório')
 
     setSaving(true)
-
     let clientId: string | null = null
 
     try {
       if (clientMode === 'existente' && selectedClientId) {
         clientId = selectedClientId
       } else if (clientMode === 'novo' && newClient.name.trim()) {
-        // Criar cliente novo
         const { data: createdClient, error: clientError } = await supabase
           .from('clients')
           .insert({
@@ -113,12 +140,11 @@ function NovaOrdemContent() {
         clientId = createdClient.id
       }
 
-      // Criar ordem de serviço
       const { data: order, error } = await supabase.from('service_orders').insert({
         ...form,
         client_id: clientId,
         total,
-      }).select('id').single()
+      }).select('id, order_number').single()
 
       if (error || !order) {
         alert('Erro ao criar ordem: ' + (error?.message || 'desconhecido'))
@@ -141,8 +167,21 @@ function NovaOrdemContent() {
         await supabase.from('order_items').insert(orderItems)
       }
 
+      // Registrar pagamento automaticamente
+      if (registerPayment && total > 0) {
+        await supabase.from('payments').insert({
+          order_id: order.id,
+          client_id: clientId,
+          amount: total,
+          payment_method: paymentMethod,
+          description: `Pagamento OS #${String(order.order_number).padStart(4, '0')}`,
+          type: 'receita',
+          status: 'confirmado',
+        })
+      }
+
       router.push(`/ordens/${order.id}`)
-    } catch (err) {
+    } catch {
       alert('Erro inesperado. Tente novamente.')
       setSaving(false)
     }
@@ -157,23 +196,21 @@ function NovaOrdemContent() {
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Nova Ordem de Serviço</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Nova Ordem de Serviço</h1>
           <p className="text-sm text-gray-500">Preencha os dados do serviço</p>
         </div>
       </div>
 
       <div className="space-y-6">
         {/* Cliente */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-4">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
             <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Cliente</h2>
             <div className="flex rounded-lg border border-gray-200 overflow-hidden">
               <button
                 onClick={() => setClientMode('novo')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-                  clientMode === 'novo'
-                    ? 'bg-brand-blue text-white'
-                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                  clientMode === 'novo' ? 'bg-brand-blue text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                 }`}
               >
                 <UserPlus className="w-3.5 h-3.5" /> Novo Cliente
@@ -181,9 +218,7 @@ function NovaOrdemContent() {
               <button
                 onClick={() => setClientMode('existente')}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
-                  clientMode === 'existente'
-                    ? 'bg-brand-blue text-white'
-                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                  clientMode === 'existente' ? 'bg-brand-blue text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
                 }`}
               >
                 <UserCheck className="w-3.5 h-3.5" /> Cliente Existente
@@ -220,9 +255,7 @@ function NovaOrdemContent() {
               <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className={inputClass}>
                 <option value="">Selecione...</option>
                 {clients.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} {c.phone ? `— ${c.phone}` : ''}
-                  </option>
+                  <option key={c.id} value={c.id}>{c.name} {c.phone ? `— ${c.phone}` : ''}</option>
                 ))}
               </select>
               {clients.length === 0 && (
@@ -233,9 +266,9 @@ function NovaOrdemContent() {
         </div>
 
         {/* Equipamento */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">Dados do Equipamento</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Equipamento *</label>
               <input type="text" value={form.equipment} onChange={e => setForm({...form, equipment: e.target.value})} placeholder="Ex: Bike Elétrica" className={inputClass} />
@@ -260,7 +293,7 @@ function NovaOrdemContent() {
         </div>
 
         {/* Sintoma e Diagnóstico */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">Diagnóstico</h2>
           <div className="space-y-4">
             <div>
@@ -275,7 +308,7 @@ function NovaOrdemContent() {
         </div>
 
         {/* Serviços e Peças */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">3. Serviços e Peças</h2>
             <button onClick={addItem} className="flex items-center gap-1 text-sm text-brand-blue hover:text-brand-blue/80">
@@ -285,39 +318,91 @@ function NovaOrdemContent() {
 
           <div className="space-y-3">
             {items.map((item, i) => (
-              <div key={i} className="flex gap-3 items-start p-3 bg-gray-50 rounded-lg">
-                <div className="flex-1 grid grid-cols-12 gap-3">
-                  <div className="col-span-2">
-                    <select value={item.item_type} onChange={e => updateItem(i, 'item_type', e.target.value)} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
+              <div key={i} className="p-3 bg-gray-50 rounded-lg">
+                {/* Mobile layout */}
+                <div className="sm:hidden space-y-3">
+                  <div className="flex items-center justify-between">
+                    <select value={item.item_type} onChange={e => updateItem(i, 'item_type', e.target.value)} className="px-2 py-1.5 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
                       <option value="servico">Serviço</option>
                       <option value="peca">Peça</option>
                       <option value="produto">Produto</option>
                     </select>
+                    <button onClick={() => removeItem(i)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                   {(item.item_type === 'peca' || item.item_type === 'produto') && (
-                    <div className="col-span-3">
-                      <select onChange={e => updateItem(i, 'product_id', e.target.value)} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
-                        <option value="">Do catálogo...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name} — R${p.sell_price.toFixed(2)}</option>)}
-                      </select>
-                    </div>
+                    <select onChange={e => updateItem(i, 'product_id', e.target.value)} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
+                      <option value="">Selecionar do catálogo...</option>
+                      {products.map(p => <option key={p.id} value={p.id}>{p.name} — R$ {p.sell_price.toFixed(2)}</option>)}
+                    </select>
                   )}
-                  <div className={item.item_type === 'servico' ? 'col-span-6' : 'col-span-3'}>
-                    <input type="text" value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} placeholder="Descrição" className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
-                  </div>
-                  <div className="col-span-1">
-                    <input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', Number(e.target.value))} min={1} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs text-center focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
-                  </div>
-                  <div className="col-span-2">
-                    <input type="number" step="0.01" value={item.unit_price} onChange={e => updateItem(i, 'unit_price', Number(e.target.value))} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs text-right focus:outline-none focus:ring-2 focus:ring-brand-blue/20" placeholder="R$" />
-                  </div>
-                  <div className="col-span-1 flex items-center justify-end text-xs font-medium text-gray-700">
-                    R$ {(item.quantity * item.unit_price).toFixed(2)}
+                  <input type="text" value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} placeholder="Descrição do item" className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Qtd</label>
+                      <input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', Number(e.target.value))} min={1} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs text-center focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Valor (R$)</label>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
+                        <input type="text" inputMode="numeric" value={priceDisplays[i]} onChange={e => handlePriceChange(i, e.target.value)} className="w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg text-xs text-right focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                      </div>
+                    </div>
+                    <div className="flex items-end justify-end pb-2">
+                      <span className="text-xs font-semibold text-gray-700">
+                        R$ {(item.quantity * item.unit_price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => removeItem(i)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 mt-1">
-                  <Trash2 className="w-4 h-4" />
-                </button>
+
+                {/* Desktop layout */}
+                <div className="hidden sm:flex gap-3 items-start">
+                  <div className="flex-1 grid grid-cols-12 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Tipo</label>
+                      <select value={item.item_type} onChange={e => updateItem(i, 'item_type', e.target.value)} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
+                        <option value="servico">Serviço</option>
+                        <option value="peca">Peça</option>
+                        <option value="produto">Produto</option>
+                      </select>
+                    </div>
+                    {(item.item_type === 'peca' || item.item_type === 'produto') && (
+                      <div className="col-span-3">
+                        <label className="block text-[10px] text-gray-400 mb-0.5">Catálogo</label>
+                        <select onChange={e => updateItem(i, 'product_id', e.target.value)} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20">
+                          <option value="">Selecionar...</option>
+                          {products.map(p => <option key={p.id} value={p.id}>{p.name} — R$ {p.sell_price.toFixed(2)}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    <div className={item.item_type === 'servico' ? 'col-span-6' : 'col-span-3'}>
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Descrição</label>
+                      <input type="text" value={item.description} onChange={e => updateItem(i, 'description', e.target.value)} placeholder="Descrição do item" className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                    </div>
+                    <div className="col-span-1">
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Qtd</label>
+                      <input type="number" value={item.quantity} onChange={e => updateItem(i, 'quantity', Number(e.target.value))} min={1} className="w-full px-2 py-2 border border-gray-200 rounded-lg text-xs text-center focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[10px] text-gray-400 mb-0.5">Valor (R$)</label>
+                      <div className="relative">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-gray-400">R$</span>
+                        <input type="text" inputMode="numeric" value={priceDisplays[i]} onChange={e => handlePriceChange(i, e.target.value)} className="w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg text-xs text-right focus:outline-none focus:ring-2 focus:ring-brand-blue/20" />
+                      </div>
+                    </div>
+                    <div className="col-span-1 flex items-end justify-end pb-2">
+                      <span className="text-xs font-semibold text-gray-700">
+                        R$ {(item.quantity * item.unit_price).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  </div>
+                  <button onClick={() => removeItem(i)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 mt-5">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -325,15 +410,59 @@ function NovaOrdemContent() {
           <div className="flex justify-end mt-4 pt-4 border-t border-gray-100">
             <div className="text-right">
               <p className="text-sm text-gray-500">Total</p>
-              <p className="text-2xl font-bold text-gray-900">R$ {total.toFixed(2)}</p>
+              <p className="text-2xl font-bold text-gray-900">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
           </div>
         </div>
 
+        {/* Pagamento */}
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Pagamento</h2>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={registerPayment}
+                onChange={e => setRegisterPayment(e.target.checked)}
+                className="w-4 h-4 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
+              />
+              <span className="text-xs text-gray-500">Registrar pagamento ao criar</span>
+            </label>
+          </div>
+
+          {registerPayment && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Método de Pagamento</label>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {Object.entries(PAYMENT_LABELS).map(([key, label]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setPaymentMethod(key)}
+                      className={`px-3 py-2.5 rounded-lg text-xs font-medium border transition-all ${
+                        paymentMethod === key
+                          ? 'bg-brand-blue text-white border-brand-blue shadow-sm'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-brand-blue/30 hover:bg-brand-blue/5'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!registerPayment && (
+            <p className="text-xs text-gray-400">O pagamento poderá ser registrado depois na página da OS.</p>
+          )}
+        </div>
+
         {/* Condições */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">4. Condições de Entrega</h2>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Prazo de Execução</label>
               <input type="text" value={form.execution_deadline} onChange={e => setForm({...form, execution_deadline: e.target.value})} placeholder="Ex: 3 dias úteis" className={inputClass} />

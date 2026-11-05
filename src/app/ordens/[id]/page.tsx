@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase, ServiceOrder, OrderItem, Client, OrderImage } from '@/lib/supabase'
 import { formatCurrency, formatDate, STATUS_LABELS, PAYMENT_LABELS } from '@/lib/format'
 import { generateLaudoPDF } from '@/lib/pdf-generator'
-import { ArrowLeft, FileText, DollarSign, Edit2 } from 'lucide-react'
+import { ArrowLeft, FileText, DollarSign, Edit2, Trash2 } from 'lucide-react'
 import Link from 'next/link'
 import StatusBadge from '@/components/StatusBadge'
 import Modal from '@/components/Modal'
@@ -23,6 +23,7 @@ function OrdemDetalheContent() {
   const [statusModal, setStatusModal] = useState(false)
   const [payForm, setPayForm] = useState({ amount: 0, payment_method: 'pix', description: '' })
   const [newStatus, setNewStatus] = useState('')
+  const [deletingOrder, setDeletingOrder] = useState(false)
 
   async function load() {
     const { data: o } = await supabase.from('service_orders').select('*').eq('id', params.id).single()
@@ -73,6 +74,19 @@ function OrdemDetalheContent() {
     load()
   }
 
+  async function handleDeleteOrder() {
+    if (!order) return
+    if (!confirm(`Excluir OS #${String(order.order_number).padStart(4, '0')}?\n\nTodos os itens, pagamentos e imagens relacionados serão excluídos.\n\nEssa ação não pode ser desfeita.`)) return
+    setDeletingOrder(true)
+    const { error } = await supabase.from('service_orders').delete().eq('id', order.id)
+    if (error) {
+      alert('Erro ao excluir: ' + error.message)
+      setDeletingOrder(false)
+    } else {
+      router.push('/ordens')
+    }
+  }
+
   if (loading) {
     return <div className="flex justify-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-blue" /></div>
   }
@@ -81,36 +95,40 @@ function OrdemDetalheContent() {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <Link href="/ordens" className="p-2 rounded-lg hover:bg-gray-100 text-gray-400">
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
               OS #{String(order.order_number).padStart(4, '0')}
             </h1>
             <p className="text-sm text-gray-500">{formatDate(order.created_at)}</p>
           </div>
           <StatusBadge status={order.status} />
         </div>
-        <div className="flex gap-2">
-          <button onClick={() => { setPayForm({...payForm, amount: order.total}); setPayModal(true) }} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-            <DollarSign className="w-4 h-4" /> Registrar Pagamento
+        <div className="flex flex-wrap gap-2 ml-11 sm:ml-0">
+          <button onClick={() => { setPayForm({...payForm, amount: order.total}); setPayModal(true) }} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-xs sm:text-sm hover:bg-gray-50 transition-colors">
+            <DollarSign className="w-4 h-4" /> <span className="hidden sm:inline">Registrar </span>Pagamento
           </button>
-          <button onClick={() => setStatusModal(true)} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-            <Edit2 className="w-4 h-4" /> Alterar Status
+          <button onClick={() => setStatusModal(true)} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-xs sm:text-sm hover:bg-gray-50 transition-colors">
+            <Edit2 className="w-4 h-4" /> Status
           </button>
-          <button onClick={downloadPDF} className="flex items-center gap-2 px-4 py-2 bg-brand-dark text-white rounded-lg text-sm font-medium hover:bg-brand-dark-light transition-colors">
-            <FileText className="w-4 h-4" /> Gerar PDF
+          <button onClick={downloadPDF} className="flex items-center gap-1.5 px-3 py-2 bg-brand-dark text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-dark-light transition-colors">
+            <FileText className="w-4 h-4" /> PDF
+          </button>
+          <button onClick={handleDeleteOrder} disabled={deletingOrder} className="flex items-center gap-1.5 px-3 py-2 border border-red-200 text-red-500 rounded-lg text-xs sm:text-sm hover:bg-red-50 transition-colors disabled:opacity-50">
+            <Trash2 className="w-4 h-4" /> Excluir
           </button>
         </div>
       </div>
 
       <div className="space-y-6">
         {/* Info */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
-          <div className="grid grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
             <div>
               <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Cliente</h3>
               <p className="text-sm font-medium text-gray-900">{client?.name || 'Não informado'}</p>
@@ -129,7 +147,7 @@ function OrdemDetalheContent() {
 
         {/* Sintoma */}
         {order.symptom_report && (
-          <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
             <h3 className="text-sm font-bold text-gray-700 mb-2">1. Relato do Sintoma / Entrada</h3>
             <p className="text-sm text-gray-600 whitespace-pre-wrap">{order.symptom_report}</p>
           </div>
@@ -137,63 +155,93 @@ function OrdemDetalheContent() {
 
         {/* Diagnóstico */}
         {order.technical_diagnosis && (
-          <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+          <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
             <h3 className="text-sm font-bold text-gray-700 mb-2">2. Diagnóstico Técnico de Bancada</h3>
             <p className="text-sm text-gray-600 whitespace-pre-wrap">{order.technical_diagnosis}</p>
           </div>
         )}
 
         {/* Itens */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <h3 className="text-sm font-bold text-gray-700 mb-4">3. Serviços e Peças</h3>
           {items.length === 0 ? (
             <p className="text-sm text-gray-400">Nenhum item registrado.</p>
           ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-xs font-medium text-gray-400 uppercase">
-                  <th className="pb-2">#</th>
-                  <th className="pb-2">Tipo</th>
-                  <th className="pb-2">Descrição</th>
-                  <th className="pb-2 text-center">Qtd</th>
-                  <th className="pb-2 text-right">Unit.</th>
-                  <th className="pb-2 text-right">Total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {items.map((it, i) => (
-                  <tr key={it.id}>
-                    <td className="py-2 text-sm text-gray-400">{String(i + 1).padStart(2, '0')}</td>
-                    <td className="py-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        it.item_type === 'servico' ? 'bg-blue-50 text-blue-700' :
-                        it.item_type === 'peca' ? 'bg-amber-50 text-amber-700' :
-                        'bg-purple-50 text-purple-700'
-                      }`}>
-                        {it.item_type === 'servico' ? 'Serviço' : it.item_type === 'peca' ? 'Peça' : 'Produto'}
-                      </span>
-                    </td>
-                    <td className="py-2 text-sm text-gray-900">{it.description}</td>
-                    <td className="py-2 text-sm text-gray-600 text-center">{it.quantity}</td>
-                    <td className="py-2 text-sm text-gray-600 text-right">{formatCurrency(it.unit_price)}</td>
-                    <td className="py-2 text-sm font-medium text-gray-900 text-right">{formatCurrency(it.total)}</td>
+            <>
+              {/* Desktop table */}
+              <table className="w-full hidden sm:table">
+                <thead>
+                  <tr className="text-left text-xs font-medium text-gray-400 uppercase">
+                    <th className="pb-2">#</th>
+                    <th className="pb-2">Tipo</th>
+                    <th className="pb-2">Descrição</th>
+                    <th className="pb-2 text-center">Qtd</th>
+                    <th className="pb-2 text-right">Unit.</th>
+                    <th className="pb-2 text-right">Total</th>
                   </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {items.map((it, i) => (
+                    <tr key={it.id}>
+                      <td className="py-2 text-sm text-gray-400">{String(i + 1).padStart(2, '0')}</td>
+                      <td className="py-2">
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          it.item_type === 'servico' ? 'bg-blue-50 text-blue-700' :
+                          it.item_type === 'peca' ? 'bg-amber-50 text-amber-700' :
+                          'bg-purple-50 text-purple-700'
+                        }`}>
+                          {it.item_type === 'servico' ? 'Serviço' : it.item_type === 'peca' ? 'Peça' : 'Produto'}
+                        </span>
+                      </td>
+                      <td className="py-2 text-sm text-gray-900">{it.description}</td>
+                      <td className="py-2 text-sm text-gray-600 text-center">{it.quantity}</td>
+                      <td className="py-2 text-sm text-gray-600 text-right">{formatCurrency(it.unit_price)}</td>
+                      <td className="py-2 text-sm font-medium text-gray-900 text-right">{formatCurrency(it.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-gray-200">
+                    <td colSpan={5} className="py-3 text-right text-sm font-bold text-gray-700">TOTAL</td>
+                    <td className="py-3 text-right text-lg font-bold text-brand-blue">{formatCurrency(order.total)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+
+              {/* Mobile cards */}
+              <div className="sm:hidden space-y-2">
+                {items.map((it, i) => (
+                  <div key={it.id} className="p-3 bg-gray-50 rounded-lg">
+                    <div className="flex items-start justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-400">#{i + 1}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${
+                          it.item_type === 'servico' ? 'bg-blue-50 text-blue-700' :
+                          it.item_type === 'peca' ? 'bg-amber-50 text-amber-700' :
+                          'bg-purple-50 text-purple-700'
+                        }`}>
+                          {it.item_type === 'servico' ? 'Serviço' : it.item_type === 'peca' ? 'Peça' : 'Produto'}
+                        </span>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">{formatCurrency(it.total)}</span>
+                    </div>
+                    <p className="text-sm text-gray-900">{it.description}</p>
+                    <p className="text-xs text-gray-400 mt-0.5">{it.quantity}x {formatCurrency(it.unit_price)}</p>
+                  </div>
                 ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-gray-200">
-                  <td colSpan={5} className="py-3 text-right text-sm font-bold text-gray-700">TOTAL</td>
-                  <td className="py-3 text-right text-lg font-bold text-brand-blue">{formatCurrency(order.total)}</td>
-                </tr>
-              </tfoot>
-            </table>
+                <div className="flex justify-between items-center pt-3 border-t-2 border-gray-200">
+                  <span className="text-sm font-bold text-gray-700">TOTAL</span>
+                  <span className="text-lg font-bold text-brand-blue">{formatCurrency(order.total)}</span>
+                </div>
+              </div>
+            </>
           )}
         </div>
 
         {/* Condições */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <h3 className="text-sm font-bold text-gray-700 mb-3">4. Condições de Entrega</h3>
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
             <div>
               <span className="text-gray-400">Prazo:</span>
               <span className="ml-2 text-gray-700">{order.execution_deadline || 'A combinar'}</span>
@@ -203,7 +251,7 @@ function OrdemDetalheContent() {
               <span className="ml-2 text-gray-700">{order.warranty || '—'}</span>
             </div>
             {order.delivery_conditions && (
-              <div className="col-span-2">
+              <div className="col-span-1 sm:col-span-2">
                 <span className="text-gray-400">Observações:</span>
                 <p className="text-gray-700 mt-1">{order.delivery_conditions}</p>
               </div>
@@ -212,7 +260,7 @@ function OrdemDetalheContent() {
         </div>
 
         {/* Fotos */}
-        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
           <ImageUpload orderId={order.id} images={images} onImagesChange={setImages} />
         </div>
       </div>

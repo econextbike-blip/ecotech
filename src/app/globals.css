@@ -28,3 +28,20 @@ input, select, textarea {
   background: #cbd5e1;
   border-radius: 3px;
 }
+
+/* Mobile sidebar animation */
+@keyframes slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.animate-slide-in {
+  animation: slide-in 0.2s ease-out;
+}
+
+/* PWA standalone */
+@media (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}

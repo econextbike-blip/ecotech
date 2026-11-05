@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Client, Product } from '@/lib/supabase'
-import { Plus, Trash2, ArrowLeft } from 'lucide-react'
+import { Plus, Trash2, ArrowLeft, UserPlus, UserCheck } from 'lucide-react'
 import Link from 'next/link'
 
 interface ItemForm {
@@ -16,12 +16,22 @@ interface ItemForm {
 
 function NovaOrdemContent() {
   const router = useRouter()
-  const [clients, setClients] = useState<Array<{ id: string; name: string }>>([])
+  const [clients, setClients] = useState<Client[]>([])
   const [products, setProducts] = useState<Product[]>([])
   const [saving, setSaving] = useState(false)
 
+  // Cliente: modo "novo" ou "existente"
+  const [clientMode, setClientMode] = useState<'novo' | 'existente'>('novo')
+  const [selectedClientId, setSelectedClientId] = useState('')
+  const [newClient, setNewClient] = useState({
+    name: '',
+    phone: '',
+    cpf_cnpj: '',
+    email: '',
+    address: '',
+  })
+
   const [form, setForm] = useState({
-    client_id: '',
     equipment: '',
     brand: '',
     model: '',
@@ -39,8 +49,8 @@ function NovaOrdemContent() {
   ])
 
   useEffect(() => {
-    supabase.from('clients').select('id, name').order('name').then(({ data }) => setClients(data || []))
-    supabase.from('products').select('*').eq('active', true).order('name').then(({ data }) => setProducts(data || []))
+    supabase.from('clients').select('*').order('name').then(({ data }) => setClients((data || []) as Client[]))
+    supabase.from('products').select('*').eq('active', true).order('name').then(({ data }) => setProducts((data || []) as Product[]))
   }, [])
 
   function addItem() {
@@ -68,35 +78,74 @@ function NovaOrdemContent() {
 
   async function save() {
     if (!form.equipment.trim()) return alert('Equipamento é obrigatório')
+
+    // Validar cliente
+    if (clientMode === 'novo' && !newClient.name.trim()) {
+      return alert('Nome do cliente é obrigatório')
+    }
+
     setSaving(true)
 
-    const { data: order, error } = await supabase.from('service_orders').insert({
-      ...form,
-      client_id: form.client_id || null,
-      total,
-    }).select('id').single()
+    let clientId: string | null = null
 
-    if (error || !order) {
-      alert('Erro ao criar ordem: ' + (error?.message || 'desconhecido'))
+    try {
+      if (clientMode === 'existente' && selectedClientId) {
+        clientId = selectedClientId
+      } else if (clientMode === 'novo' && newClient.name.trim()) {
+        // Criar cliente novo
+        const { data: createdClient, error: clientError } = await supabase
+          .from('clients')
+          .insert({
+            name: newClient.name.trim(),
+            phone: newClient.phone.trim() || null,
+            cpf_cnpj: newClient.cpf_cnpj.trim() || null,
+            email: newClient.email.trim() || null,
+            address: newClient.address.trim() || null,
+          })
+          .select('id')
+          .single()
+
+        if (clientError || !createdClient) {
+          alert('Erro ao cadastrar cliente: ' + (clientError?.message || 'desconhecido'))
+          setSaving(false)
+          return
+        }
+        clientId = createdClient.id
+      }
+
+      // Criar ordem de serviço
+      const { data: order, error } = await supabase.from('service_orders').insert({
+        ...form,
+        client_id: clientId,
+        total,
+      }).select('id').single()
+
+      if (error || !order) {
+        alert('Erro ao criar ordem: ' + (error?.message || 'desconhecido'))
+        setSaving(false)
+        return
+      }
+
+      // Inserir itens
+      const orderItems = items.filter(it => it.description.trim()).map(it => ({
+        order_id: order.id,
+        product_id: it.product_id || null,
+        description: it.description,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        total: it.quantity * it.unit_price,
+        item_type: it.item_type,
+      }))
+
+      if (orderItems.length > 0) {
+        await supabase.from('order_items').insert(orderItems)
+      }
+
+      router.push(`/ordens/${order.id}`)
+    } catch (err) {
+      alert('Erro inesperado. Tente novamente.')
       setSaving(false)
-      return
     }
-
-    const orderItems = items.filter(it => it.description.trim()).map(it => ({
-      order_id: order.id,
-      product_id: it.product_id || null,
-      description: it.description,
-      quantity: it.quantity,
-      unit_price: it.unit_price,
-      total: it.quantity * it.unit_price,
-      item_type: it.item_type,
-    }))
-
-    if (orderItems.length > 0) {
-      await supabase.from('order_items').insert(orderItems)
-    }
-
-    router.push(`/ordens/${order.id}`)
   }
 
   const inputClass = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-blue/20 focus:border-brand-blue"
@@ -114,17 +163,79 @@ function NovaOrdemContent() {
       </div>
 
       <div className="space-y-6">
-        {/* Cliente e Equipamento */}
+        {/* Cliente */}
+        <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Cliente</h2>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+              <button
+                onClick={() => setClientMode('novo')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+                  clientMode === 'novo'
+                    ? 'bg-brand-blue text-white'
+                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                <UserPlus className="w-3.5 h-3.5" /> Novo Cliente
+              </button>
+              <button
+                onClick={() => setClientMode('existente')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+                  clientMode === 'existente'
+                    ? 'bg-brand-blue text-white'
+                    : 'bg-white text-gray-500 hover:bg-gray-50'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5" /> Cliente Existente
+              </button>
+            </div>
+          </div>
+
+          {clientMode === 'novo' ? (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="col-span-2 sm:col-span-1">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
+                <input type="text" value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} placeholder="Nome do cliente" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Telefone</label>
+                <input type="text" value={newClient.phone} onChange={e => setNewClient({...newClient, phone: e.target.value})} placeholder="(55) 99999-9999" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">CPF / CNPJ</label>
+                <input type="text" value={newClient.cpf_cnpj} onChange={e => setNewClient({...newClient, cpf_cnpj: e.target.value})} placeholder="000.000.000-00" className={inputClass} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                <input type="email" value={newClient.email} onChange={e => setNewClient({...newClient, email: e.target.value})} placeholder="email@exemplo.com" className={inputClass} />
+              </div>
+              <div className="col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Endereço</label>
+                <input type="text" value={newClient.address} onChange={e => setNewClient({...newClient, address: e.target.value})} placeholder="Rua, nº - Bairro" className={inputClass} />
+              </div>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Selecione o cliente</label>
+              <select value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} className={inputClass}>
+                <option value="">Selecione...</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {c.phone ? `— ${c.phone}` : ''}
+                  </option>
+                ))}
+              </select>
+              {clients.length === 0 && (
+                <p className="text-xs text-gray-400 mt-2">Nenhum cliente cadastrado. Use &quot;Novo Cliente&quot; para cadastrar.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Equipamento */}
         <div className="bg-white rounded-xl border border-gray-100 p-6 shadow-sm">
           <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider mb-4">Dados do Equipamento</h2>
           <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cliente</label>
-              <select value={form.client_id} onChange={e => setForm({...form, client_id: e.target.value})} className={inputClass}>
-                <option value="">Selecione um cliente (opcional)</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Equipamento *</label>
               <input type="text" value={form.equipment} onChange={e => setForm({...form, equipment: e.target.value})} placeholder="Ex: Bike Elétrica" className={inputClass} />

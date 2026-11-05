@@ -10,7 +10,9 @@ import {
   Users,
   DollarSign,
   Wrench,
+  LogOut,
 } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 
 const links = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -46,6 +48,19 @@ function SidebarNav() {
   )
 }
 
+function LogoutButton() {
+  const { logout } = useAuth()
+  return (
+    <button
+      onClick={logout}
+      className="flex items-center gap-2 w-full px-3 py-2 rounded-lg text-sm text-gray-400 hover:bg-white/5 hover:text-red-400 transition-colors"
+    >
+      <LogOut className="w-4 h-4" />
+      Sair
+    </button>
+  )
+}
+
 export default function Sidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 h-screen w-64 bg-brand-dark text-white flex flex-col">
@@ -55,7 +70,7 @@ export default function Sidebar() {
           <Wrench className="w-5 h-5 text-brand-green" />
         </div>
         <div>
-          <h1 className="font-bold text-lg leading-tight">Eco Tech</h1>
+          <h1 className="font-bold text-lg leading-tight">E-Tech</h1>
           <p className="text-[11px] text-gray-400">Bike Elétrica</p>
         </div>
       </div>
@@ -75,9 +90,10 @@ export default function Sidebar() {
       </Suspense>
 
       {/* Footer */}
-      <div className="px-6 py-4 border-t border-white/10">
-        <p className="text-[10px] text-gray-500">E-Tech Bike Elétrica</p>
-        <p className="text-[10px] text-gray-600">Sistema de Gestão v1.0</p>
+      <div className="px-4 py-4 border-t border-white/10">
+        <LogoutButton />
+        <p className="text-[10px] text-gray-500 mt-2 px-2">E-Tech Bike Elétrica</p>
+        <p className="text-[10px] text-gray-600 px-2">Sistema de Gestão v1.0</p>
       </div>
     </aside>
   )

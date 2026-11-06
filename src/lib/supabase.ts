@@ -100,3 +100,36 @@ export interface OrderImage {
   caption?: string
   created_at: string
 }
+
+export interface Quote {
+  id: string
+  quote_number: number
+  client_id?: string
+  client?: Client
+  equipment: string
+  brand?: string
+  model?: string
+  serial_number?: string
+  color?: string
+  reported_issue?: string
+  proposed_solution?: string
+  status: 'pendente' | 'aprovado' | 'rejeitado' | 'expirado'
+  total: number
+  validity_days: number
+  notes?: string
+  converted_order_id?: string
+  items?: QuoteItem[]
+  created_at: string
+  updated_at: string
+}
+
+export interface QuoteItem {
+  id: string
+  quote_id: string
+  product_id?: string
+  description: string
+  quantity: number
+  unit_price: number
+  total: number
+  item_type: 'servico' | 'peca' | 'produto'
+}

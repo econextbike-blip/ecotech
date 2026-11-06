@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   Package,
   ClipboardList,
+  FileText,
   Users,
   DollarSign,
   Wrench,
@@ -18,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext'
 
 const links = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/orcamentos', label: 'Orçamentos', icon: FileText },
   { href: '/ordens', label: 'Ordens de Serviço', icon: ClipboardList },
   { href: '/produtos', label: 'Produtos / Peças', icon: Package },
   { href: '/clientes', label: 'Clientes', icon: Users },

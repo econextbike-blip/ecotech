@@ -45,3 +45,17 @@ export const PAYMENT_LABELS: Record<string, string> = {
   boleto: 'Boleto',
   outro: 'Outro',
 }
+
+export const QUOTE_STATUS_LABELS: Record<string, string> = {
+  pendente: 'Pendente',
+  aprovado: 'Aprovado',
+  rejeitado: 'Rejeitado',
+  expirado: 'Expirado',
+}
+
+export const QUOTE_STATUS_COLORS: Record<string, string> = {
+  pendente: 'bg-yellow-100 text-yellow-800',
+  aprovado: 'bg-green-100 text-green-800',
+  rejeitado: 'bg-red-100 text-red-800',
+  expirado: 'bg-gray-100 text-gray-800',
+}

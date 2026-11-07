@@ -110,6 +110,9 @@ function OrdemDetalheContent() {
           <StatusBadge status={order.status} />
         </div>
         <div className="flex flex-wrap gap-2 ml-11 sm:ml-0">
+          <Link href={`/ordens/${order.id}/editar`} className="flex items-center gap-1.5 px-3 py-2 bg-brand-blue text-white rounded-lg text-xs sm:text-sm font-medium hover:bg-brand-blue/90 transition-colors">
+            <Edit2 className="w-4 h-4" /> Editar
+          </Link>
           <button onClick={() => { setPayForm({...payForm, amount: order.total}); setPayModal(true) }} className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-xs sm:text-sm hover:bg-gray-50 transition-colors">
             <DollarSign className="w-4 h-4" /> <span className="hidden sm:inline">Registrar </span>Pagamento
           </button>

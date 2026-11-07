@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Client, Product } from '@/lib/supabase'
-import { PAYMENT_LABELS } from '@/lib/format'
 import { Plus, Trash2, ArrowLeft, UserPlus, UserCheck } from 'lucide-react'
 import Link from 'next/link'
 
@@ -57,10 +56,6 @@ function NovaOrdemContent() {
   const [items, setItems] = useState<ItemForm[]>([
     { description: '', quantity: 1, unit_price: 0, item_type: 'servico' },
   ])
-
-  // Pagamento
-  const [registerPayment, setRegisterPayment] = useState(true)
-  const [paymentMethod, setPaymentMethod] = useState('pix')
 
   // Price display values (formatted strings)
   const [priceDisplays, setPriceDisplays] = useState<string[]>(['0,00'])
@@ -165,19 +160,6 @@ function NovaOrdemContent() {
 
       if (orderItems.length > 0) {
         await supabase.from('order_items').insert(orderItems)
-      }
-
-      // Registrar pagamento automaticamente
-      if (registerPayment && total > 0) {
-        await supabase.from('payments').insert({
-          order_id: order.id,
-          client_id: clientId,
-          amount: total,
-          payment_method: paymentMethod,
-          description: `Pagamento OS #${String(order.order_number).padStart(4, '0')}`,
-          type: 'receita',
-          status: 'confirmado',
-        })
       }
 
       router.push(`/ordens/${order.id}`)
@@ -413,50 +395,6 @@ function NovaOrdemContent() {
               <p className="text-2xl font-bold text-gray-900">R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
             </div>
           </div>
-        </div>
-
-        {/* Pagamento */}
-        <div className="bg-white rounded-xl border border-gray-100 p-4 sm:p-6 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-            <h2 className="text-sm font-bold text-gray-700 uppercase tracking-wider">Pagamento</h2>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={registerPayment}
-                onChange={e => setRegisterPayment(e.target.checked)}
-                className="w-4 h-4 rounded border-gray-300 text-brand-blue focus:ring-brand-blue/20"
-              />
-              <span className="text-xs text-gray-500">Registrar pagamento ao criar</span>
-            </label>
-          </div>
-
-          {registerPayment && (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">Método de Pagamento</label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {Object.entries(PAYMENT_LABELS).map(([key, label]) => (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => setPaymentMethod(key)}
-                      className={`px-3 py-2.5 rounded-lg text-xs font-medium border transition-all ${
-                        paymentMethod === key
-                          ? 'bg-brand-blue text-white border-brand-blue shadow-sm'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-brand-blue/30 hover:bg-brand-blue/5'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {!registerPayment && (
-            <p className="text-xs text-gray-400">O pagamento poderá ser registrado depois na página da OS.</p>
-          )}
         </div>
 
         {/* Condições */}
